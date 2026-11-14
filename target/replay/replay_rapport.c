@@ -116,8 +116,7 @@ void replay_print_bilan(const replay_opts *o, const replay_bilan *b,
            b->alarmes, VEILLE_HR_THRESHOLD, cfg->bound_alarm_ms);
     printf("alarmes techniques            : %ld (borne %ld ms)\n",
            b->techniques, cfg->bound_tech_ms);
-    printf("latence chaine mesuree sur cible : max %ld.%03ld ms / moyenne %ld.%03ld ms"
-           " (%ld echantillons)\n",
+    printf("latence mesuree sur cible : max %ld.%03ld ms / moy %ld.%03ld ms (%ld ech.)\n",
            b->lat_max_us / 1000, b->lat_max_us % 1000,
            b->n_ech ? b->lat_sum_us / b->n_ech / 1000 : 0,
            b->n_ech ? (b->lat_sum_us / b->n_ech) % 1000 : 0, b->n_ech);
