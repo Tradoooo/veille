@@ -40,13 +40,13 @@ Le compte rendu factuel est [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md).
    (format 212, en C) : 3238 fréquences mesurées, **0 alarme technique** sur un
    rythme irrégulier mais vivant. C'est ce rejeu — et non un signal synthétique —
    qui a fait tomber le faux positif « capteur qui dérive » (voir §7).
-   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4a et §3.4d.
+   — [`docs/QNX-DEMO.md`](docs/QNX-DEMO.md) §3.4a et §3.4d.
 7. **Le rapport d'audit (S5/M5) est produit SUR la cible**, avec l'empreinte
    SHA-256 de la configuration gelée calculée par `core/sha256.c` (pur C11, sans
    dépendance) — identique à celle du jumeau Python (`hashlib`), vérifié par le
    différentiel. Le rejeu de 30 minutes du record 222, lui, reste un client
    Python sur l'hôte (voir §3.4b).
-   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4d, `core/tests/test_sha256.c`.
+   — [`docs/QNX-DEMO.md`](docs/QNX-DEMO.md) §3.4d, `core/tests/test_sha256.c`.
 
 ## 2. Ce que la preuve n'établit PAS
 
@@ -127,7 +127,7 @@ clinique** (voir §5), et des **jeux de données de patients différents** (voir
   ÉCHANTILLONS, et le rejeu du record 222 (fibrillation atriale) rend
   **0 alarme technique** — mesuré dans l'invité QNX 8.0, phase 5 de la
   démonstration.
-  — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4a,
+  — [`docs/QNX-DEMO.md`](docs/QNX-DEMO.md) §3.4a,
   [`docs/REAL-DATA.md`](REAL-DATA.md) « limites ».
 - **Ce que la correction a coûté, et qui reste une limite assumée :** la
   détection « capteur qui dérive » exige une rampe de la ligne de base **sans

@@ -19,9 +19,13 @@ CAHIER = RACINE / "VEILLE-cahier-des-charges.md"
 SORTIE = RACINE / "docs" / "MATRICE.md"
 RE_EX = re.compile(r"^\|\s*(S\d+|C\d+|X\d+)\s*\|\s*(.+?)\s*\|\s*[SCX]\s*\|$")
 
+# Extensions binaires : jamais fouillées (voir la note dans couverture()).
+EXTENSIONS_BINAIRES = {".png", ".jpg", ".jpeg", ".gif", ".mp4", ".webm", ".bin",
+                       ".o", ".so", ".zip", ".gz", ".kev", ".pdf"}
+
 # Dossiers où chercher la couverture d'un identifiant.
 FOUILLES = ["tests", "core/tests", "host/tests", "preuve", "docs/QNX-EVIDENCE.md",
-            "scenarios"]
+            "docs/QNX-DEMO.md", "scenarios"]
 
 # Couverture explicite (fichiers qui couvrent l'exigence sans en citer l'ID).
 # Le grep (ci-dessous) complète ; cette table fixe les cas où l'ID n'apparaît
@@ -71,6 +75,15 @@ def couverture(ident: str) -> list[str]:
         fichiers = [base] if base.is_file() else list(base.rglob("*"))
         for f in fichiers:
             if not f.is_file() or "__pycache__" in f.parts:
+                continue
+            # Les BINAIRES (PNG, MP4) sont exclus : le texte y est lu en ignorant
+            # les octets invalides, et une chaîne comme « S5 » ou « C4 » apparaît
+            # par hasard dans les données compressées. La matrice comptait donc des
+            # captures d'écran comme « couverture » d'une exigence — un faux positif
+            # qui faisait passer une exigence pour prouvée alors qu'aucun fichier
+            # ne la cite. Une preuve en image se cite par son CHEMIN (README, docs),
+            # pas par la coïncidence d'un octet.
+            if f.suffix.lower() in EXTENSIONS_BINAIRES:
                 continue
             try:
                 texte = f.read_text(encoding="utf-8", errors="ignore")

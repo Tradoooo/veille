@@ -24,5 +24,14 @@ python3 tools/qnx/console-proof.py /tmp/qnx-screens   # 51 PNG, une toutes les 2
 ffmpeg -y -framerate 5 -pattern_type glob -i '/tmp/qnx-screens/auto-*.png' proof-qnx.mp4
 ```
 
+## Les huit phases de la démo : [`phases/`](phases/README.md)
+
+Les captures ci-dessus viennent de la **console série** (2026-11-12/13). Depuis
+la PR #26, la démonstration jouée au démarrage de l'invité fait **huit phases**
+et s'affiche sur l'**écran VGA** ; une capture par phase, prise au moment où
+elle s'affiche, est dans
+[`phases/`](phases/README.md) avec le journal série de la même exécution
+(2026-11-14). C'est là que se voit le rejeu d'ECG réel décodé **dans** l'invité.
+
 La VM est pilotée par `/tmp/qnx-vm-gui.sh` (affichage VNC + console série TCP 4444
 + SSH 8022 + moniteur QEMU socket `/tmp/qemu-mon.sock` pour `screendump`).

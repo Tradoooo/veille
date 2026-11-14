@@ -17,6 +17,7 @@ LIENS = {
     "docs/SOCLE-CI.md": "docs-socle-ci.html",
     "docs/QNX-BUILD.md": "docs-qnx-build.html",
     "docs/QNX-EVIDENCE.md": "docs-qnx-evidence.html",
+    "docs/QNX-DEMO.md": "docs-qnx-demo.html",
     "docs/REAL-DATA.md": "docs-real-data.html",
     "docs/IDEES-CONSOLIDATION.md": "docs-idees.html",
     "docs/LIMITS.md": "docs-limits.html",
@@ -24,12 +25,15 @@ LIENS = {
     "docs/VIDEO.md": "docs-video.html",
     "docs/TERRAIN.md": "docs-terrain.html",
     "docs/MATRICE.md": "docs-matrice.html",
+    "preuve/emulateur/phases/README.md":
+        "https://github.com/Tradoooo/veille/blob/main/preuve/emulateur/phases/README.md",
     "LICENSE": "https://github.com/Tradoooo/veille/blob/main/LICENSE",
 }
 
 DOCS = [
     ("IDEES-CONSOLIDATION.md", "docs-idees", "100 idées"),
     ("QNX-EVIDENCE.md", "docs-qnx-evidence", "Preuve QNX 8.0"),
+    ("QNX-DEMO.md", "docs-qnx-demo", "Démo dans l'émulateur"),
     ("QNX-BUILD.md", "docs-qnx-build", "Recette QNX"),
     ("REAL-DATA.md", "docs-real-data", "Données réelles"),
     ("SAFETY.md", "docs-safety", "Sûreté"),
