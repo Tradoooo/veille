@@ -48,6 +48,14 @@ say() {
     echo "$*" > /dev/ser1
 }
 
+# champ : extrait un champ « cle=valeur » d'une ligne de mesure et l'imprime sur
+# SA propre ligne. Indispensable là où deux expressions sed concurrentes se
+# mangeaient mutuelles (le `.*` du second effaçait ce que le premier laissait) :
+# une extraction par champ est la seule forme prévisible sur l'écran 80x25.
+champ() {
+    grep -o "$1=[0-9][0-9.]*" "$2" | head -1
+}
+
 # show : console seule (le texte est déjà dans le journal).
 show() {
     echo "$*"
@@ -212,11 +220,15 @@ phase_cadence() {
     # fait 80 colonnes ; au-dela la ligne se replie et devient illegible).
     # tick-probe rend : pulses, duree_us, taux_hz, min_us, max_us, moyenne_us,
     # maxdev_us, coalesced — d'ou deux motifs, un par moitié.
-    pick "tick_probe" "$OUT" 's/^tick_probe pulses=/pulses/'
-    pick "tick_probe" "$OUT" 's/.*maxdev_us=/maxdev_us/;s/.*coalesced=/coalesces=/'
+    champ pulses "$OUT"
+    champ taux_hz "$OUT"
+    champ maxdev_us "$OUT"
+    champ coalesced "$OUT"
     bench-client stats > "$STATS" 2>&1
-    pick "tick_period_us" "$STATS"
-    pick "tick_coalesced" "$STATS"
+    champ tick_period_us "$STATS"
+    say ""
+    say "  pulses : pulses servis sur le canal PROPRE de la sonde (pas le rm)."
+    say "  taux_hz : cadence reellement produite par le timer noyau."
     say ""
     say "  Cadence produite par le noyau (timer_create + pulse), pas par sleep()."
     say "  L'ecart max est la dérive du tick ; il borne la latence d'acquisition."
@@ -239,11 +251,11 @@ phase_muet() {
     # Le journal du client porte deux verdicts : PENDANT le silence, puis APRES le
     # retour du signal. Les deux sont intéressants : l'alarme doit monter, puis se
     # LEVER d'elle-même (pas d'acquittement manuel).
-    pick "VEILLE_TECHNICAL_ALARM" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*state=\([^ ]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  etat=\3  borne=\4 ms  latency=\5 ms/'
-    pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  borne=\3 ms  latency=\4 ms/'
+    pick "VEILLE_TECHNICAL_ALARM" "$OUT" 's/^\(....\)[ ]*VEILLE_TECHNICAL_ALARM.*state=\([^|]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 TECHNIQUE  capteur=\2  borne=\3 ms  latency=\4 ms/'
+    pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_OK.*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 OK  borne=\2 ms  latency=\3 ms/'
     bench-client stats > "$STATS" 2>&1
-    pick "wd_count" "$STATS"
-    pick "wd_silence_ms" "$STATS"
+    champ wd_count "$STATS"
+    champ wd_silence_ms "$STATS"
     say ""
     say "  Le silence du capteur est une alarme TECHNIQUE bornee, pas un trou."
     say "  Le verdict porte l'ETAT (sensor_dead), la borne et la latence mesuree."
