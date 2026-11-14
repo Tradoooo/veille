@@ -27,9 +27,12 @@ EMU="${QNX_EMU:-$HOME/Bureau/qnx-emu}"
     exit 1
 }
 
-# Cœur de Veille (une seule implémentation, partagée sim/RM).
-CORE="core/src/alarm.c core/src/chain.c core/src/proof.c core/src/report.c \
-core/src/signal.c core/src/signal_gen.c core/src/state.c core/src/verdict.c"
+# Cœur de Veille (une seule implémentation, partagée sim/RM/rejeu).
+# GLOBBÉ, et non énuméré à la main : un nouveau module de core/ (sha256.c a été
+# ajouté ainsi) doit être compilé par tous les binaires sans qu'on pense à le
+# déclarer — l'énumération manuelle a cassé le build de replay-ecg au premier
+# ajout. Le glob est trié (ordre stable) et résolu depuis $SRC.
+CORE=$(cd "$SRC" && ls core/src/*.c | sort | tr '\n' ' ' | sed 's/ $//')
 
 # Includes ABSOLUS : le paquet compile depuis le répertoire de sortie.
 CFLAGS="-std=c11 -O2 -D_QNX_SOURCE -I$SRC/core/include -I$SRC/target/pipe \
