@@ -7,7 +7,14 @@
  *   - des pulses perdus/coalescés par le noyau (« unions » QNX : une seule
  *     instance en attente par canal) ou par le rm lui-même.
  *
- * usage: tick_probe [--period-ms P] [--duration-ms D] [--prio Q]
+ * usage: tick_probe [--period-ms P] [--duration-ms D] [--prio Q] [--format lignes]
+ *
+ * --format lignes : une mesure par ligne (« cle=valeur »), au lieu d'une seule
+ * ligne longue. Motif réel, mesuré dans l'invité : l'écran VGA fait 80 colonnes
+ * et la ligne unique en fait 118 — découpée, elle perd maxdev_us et coalesced,
+ * qui sont précisément les deux chiffres qui font la preuve E3. Le format par
+ * défaut (ligne unique) est CONSERVÉ : les journaux de preuve versionnés
+ * (preuve/qnx80/) et tools/qnx/analyse.py le lisent tel quel.
  */
 #define _QNX_SOURCE 1
 #include <stdio.h>
@@ -49,8 +56,12 @@ static int on_pulse(message_context_t *ctp, int code, unsigned flags, void *arg)
 
 int main(int argc, char **argv) {
     long period_us = 10000L, duration_us = 20000000L;
-    int prio = 0;
+    int prio = 0, lignes = 0;
     for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--format") && i + 2 < argc) {
+            i++;
+            lignes = !strcmp(argv[i], "lignes");
+        }
         if (!strcmp(argv[i], "--period-ms") && i + 1 < argc) period_us = atol(argv[++i]) * 1000L;
         else if (!strcmp(argv[i], "--duration-ms") && i + 1 < argc) duration_us = atol(argv[++i]) * 1000L;
         else if (!strcmp(argv[i], "--prio") && i + 1 < argc) prio = atoi(argv[++i]);
@@ -86,6 +97,17 @@ int main(int argc, char **argv) {
     }
     long elapsed = now_us() - t0;
     long n = n_pulses > 0 ? n_pulses - 1 : 0;
+    if (lignes) {
+        printf("pulses=%ld\n", n_pulses);
+        printf("duree_us=%ld\n", elapsed);
+        printf("taux_hz=%.2f\n", (double)n_pulses * 1e6 / (double)elapsed);
+        printf("min_us=%ld\n", min_us);
+        printf("max_us=%ld\n", max_us);
+        printf("moyenne_us=%ld\n", n ? sum_us / n : 0);
+        printf("maxdev_us=%ld\n", maxdev_us);
+        printf("coalesced=%ld\n", coalesced);
+        return 0;
+    }
     printf("tick_probe pulses=%ld duree_us=%ld taux_hz=%.2f "
            "min_us=%ld max_us=%ld moyenne_us=%ld maxdev_us=%ld coalesced=%ld\n",
            n_pulses, elapsed, (double)n_pulses * 1e6 / (double)elapsed,
