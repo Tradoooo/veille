@@ -33,6 +33,9 @@ SIMOUT=/dev/shmem/veille-sim.out
 SELOUT=/dev/shmem/veille-sel.out
 OUT=/dev/shmem/veille-cmd.out
 RMOUT=/dev/shmem/veille-rm.out
+RELOUT=/dev/shmem/veille-reel.out
+STATS=/dev/shmem/veille-stats.out
+RAPPORT=/dev/shmem/veille-rapport.md
 : > "$LOG"
 
 # say : console VGA + journal du scenario + console serie.
@@ -91,7 +94,7 @@ pause() {
 
 # ---------------------------------------------------------------- 1. la preuve
 phase_preuve() {
-    phase "PHASE 1/4  PREUVE  -  exploration exhaustive des etats"
+    phase "PHASE 1/8  PREUVE  -  exploration exhaustive des etats"
     say "  Borne d'alarme prouvee (B_proof)      : 200 ms"
     say "  Etats explores dans l'invite QNX 8.0   :"
 
@@ -103,7 +106,7 @@ phase_preuve() {
 
 # ------------------------------------------------------------- 2. la simulation
 phase_simulation() {
-    phase "PHASE 2/4  SIMULATION  -  600 echantillons, pannes injectees"
+    phase "PHASE 2/8  SIMULATION  -  600 echantillons, pannes injectees"
     pick "alarmes physiologiques" "$SIMOUT"
     pick "alarmes techniques" "$SIMOUT"
     pick "marge de" "$SIMOUT"
@@ -115,7 +118,7 @@ phase_simulation() {
 
 # ------------------------------------------------------------- 3. le signal brut
 phase_signal() {
-    phase "PHASE 3/4  SIGNAL BRUT  -  les 4 etats capteur"
+    phase "PHASE 3/8  SIGNAL BRUT  -  les 4 etats capteur"
     pick "capteur=" "$SIMOUT" 's/capteur=sensor_//'
     say ""
     say "  Capteur fige detecte sur le SIGNAL BRUT (pas sur le bpm)."
@@ -125,7 +128,7 @@ phase_signal() {
 
 # ---------------------------------------------------------------- 4. la cible
 phase_cible() {
-    phase "PHASE 4/4  CIBLE  -  resource manager /dev/veille + mesure"
+    phase "PHASE 4/8  CIBLE  -  resource manager /dev/veille + mesure"
     say "  /dev/veille en service (resource manager QNX, SCHED_FIFO 62)"
     bench-client samples --n 200 --interval-us 2000 --prio 10 --label vitrine \
         > "$OUT" 2>&1
@@ -140,9 +143,126 @@ phase_cible() {
     pause 6
 }
 
+# ------------------------------------------------------- 5. le signal RÉEL (222)
+# Les octets du record mitdb/222 (fibrillation atriale) sont DANS l'IFS ; le
+# décodage format 212, l'état capteur, la fréquence et la décision se font dans
+# l'invité. Le critère attendu sur ce signal : AUCUNE alarme technique (le rythme
+# est irrégulier mais vivant) — c'est exactement le défaut que les données réelles
+# ont fait tomber (voir docs/LIMITS.md : la dérive respiratoire n'est pas une
+# panne d'électrode).
+phase_reel() {
+    phase "PHASE 5/8  SIGNAL REEL  -  mitdb/222 (fibrillation atriale)"
+    replay-ecg --sortie "$RELOUT" > "$OUT" 2>&1
+    RECODE=$?
+    pick "enregistrement" "$OUT"
+    pick "echantillons decodes" "$OUT"
+    pick "frequences rapportees" "$OUT"
+    pick "etat capteur" "$OUT"
+    pick "alarmes techniques  " "$OUT"
+    pick "latence chaine" "$OUT"
+    say ""
+    say "  Decodage format 212, etat capteur et frequence : DANS l'invite."
+    if [ "$RECODE" -eq 0 ]; then
+        say "  Rythme irregulier vivant : 0 fausse alarme technique."
+    else
+        say "  ATTENTION : $RECODE signale une alarme technique sur ce signal."
+    fi
+    pause 6
+}
+
+# ---------------------------------------- 6. E2 : héritage de priorité sous charge
+# Un hog à priorité 30 occupe le CPU ; un client à 40 appelle /dev/veille, servi
+# par un rm à priorité de base 10. Sans héritage, le rm est préempté par le hog ;
+# avec, le noyau le hisse à 40. La mesure est la priorité EFFECTIVE relevée par
+# le serveur lui-même au moment de la réception (pthread_getschedparam).
+phase_charge() {
+    phase "PHASE 6/8  CHARGE  -  E2 : heritage de priorite du noyau"
+    say "  rm a prio 10, hog a prio 30, client a prio 40"
+    slay veille-rm
+    sleep 1
+    veille-rm --no-tick --prio 10 > "$RMOUT" 2>&1 &
+    sleep 2
+    hog --prio 30 --hold-ms 20 --sleep-ms 1 --duration-ms 4000 > /dev/null 2>&1 &
+    bench-client samples --n 120 --interval-us 2000 --prio 40 --label e2-charge \
+        > "$OUT" 2>&1
+    pick "fin label" "$OUT"
+    bench-client stats > "$STATS" 2>&1
+    pick "prio_base" "$STATS"
+    pick "prio_effective" "$STATS"
+    pick "lat_write_max_us" "$STATS"
+    say ""
+    say "  prio_effective = 40 : le noyau a hisse le serveur a son client."
+    say "  Sans heritage, le rm restait a 10 et le hog (30) le preemptait."
+    pause 6
+    slay veille-rm
+    sleep 1
+    veille-rm > "$RMOUT" 2>&1 &
+    sleep 2
+}
+
+# ------------------------------------------------------- 7. E3 : cadence du tick
+# Le timer noyau (timer_create + SIGEV_PULSE, 10 ms) est la cadence d'acquisition
+# : pas de sleep() applicatif. La sonde indépendante (tick-probe) compte les pulses
+# sur PROPRE canal : elle distingue un timer qui fire vraiment d'un pulse perdu ou
+# coalisé — le rm, lui, ne voit que ce qu'il sert.
+phase_cadence() {
+    phase "PHASE 7/8  CADENCE  -  E3 : tick noyau, sonde independante"
+    tick-probe --period-ms 10 --duration-ms 3000 --prio 62 > "$OUT" 2>&1
+    # Une seule ligne de mesure, decoupee en deux affichages lisibles (l'ecran
+    # fait 80 colonnes ; au-dela la ligne se replie et devient illegible).
+    pick "tick_probe" "$OUT" 's/tick_probe pulses=/pulses/'
+    pick "tick_probe" "$OUT" 's/.*maxdev_us=/maxdev_us/;s/ coalesced=/ coalesces=/'
+    bench-client stats > "$STATS" 2>&1
+    pick "tick_period_us" "$STATS"
+    pick "tick_coalesced" "$STATS"
+    say ""
+    say "  Cadence produite par le noyau (timer_create + pulse), pas par sleep()."
+    say "  L'ecart max est la dérive du tick ; il borne la latence d'acquisition."
+    pause 6
+}
+
+# ------------------------------- 8. E4 : capteur muet + rapport d'audit (S5/M5)
+# Deux choses en une phase : (a) le watchdog « perte de signal » — le rm, servi
+# par un timer noyau indépendant, alarme dans B_tech quand le capteur se tait ;
+# (b) le rapport d'audit d'IEC 62304, produit SUR la cible par core/report.c avec
+# l'empreinte SHA-256 de la configuration (core/sha256.c, pur C11).
+phase_muet() {
+    phase "PHASE 8/8  CAPTEUR MUET + RAPPORT D'AUDIT"
+    slay veille-rm
+    sleep 1
+    veille-rm --no-tick --watchdog-ms 800 > "$RMOUT" 2>&1 &
+    sleep 2
+    say "  rm relance sans capteur interne, watchdog 800 ms"
+    bench-client hold --silence-ms 1200 --duration-ms 600 > "$OUT" 2>&1
+    # Le journal du client porte deux verdicts : PENDANT le silence, puis APRES le
+    # retour du signal. Les deux sont intéressants : l'alarme doit monter, puis se
+    # LEVER d'elle-même (pas d'acquittement manuel).
+    pick "capteur muet" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  borne=\3 ms  latency=\4 ms/'
+    pick "capteur fige" "$OUT"
+    say ""
+    say "  Le silence du capteur est une alarme TECHNIQUE bornee, pas un trou."
+    say "  Elle se leve des que le signal revient (verdict VERDICT_SIGNAL)."
+    say "  --- rapport d'audit (cible) : P1 sur 4800 etats ---"
+    replay-ecg --preuve --rapport markdown --quiet > "$RAPPORT" 2>&1
+    # Le rapport sort en UTF-8 (core/report.c — la syntaxe du CONTRAT, pas une
+    # réimplementation) ; la console VGA est orientée OCTET : `pick` y retire les
+    # octets non ASCII, ce qui rend illISIBLES les titres accentués ("Synthèse" →
+    # "Synth se"). On cueille donc les lignes dont la CLÉ est en ASCII, et on
+    # réécrit l'étiquette en ASCII : l'écran reste lisible, le contenu est la
+    # sortie brute de core/report.c (aucune valeur inventée).
+    pick "SHA-256" "$RAPPORT" 's/^- [^:]*: /  empreinte config : /;s/^\(  empreinte config : ................\).*$/\1.../'
+    pick "exploration exhaustive" "$RAPPORT" 's/^- [^:]*: /  methode  : /;s/4800 tats/4800 etats/'
+    pick "borne tenue" "$RAPPORT" 's/^- [^:]*: /  resultat : /'
+    pause 6
+    slay veille-rm
+    sleep 1
+    veille-rm > "$RMOUT" 2>&1 &
+    sleep 2
+}
+
 # ------------------------------------------------------------------- le scenario
 say "=== Veille - invite QNX 8.0 : demonstration complete ==="
-say "    (4 phases lisibles, l'ecran VGA fait 80x25)"
+say "    (8 phases lisibles, l'ecran VGA fait 80x25)"
 
 # 1) La simulation complete est jouee UNE fois ; les phases relisent le
 #    resultat dans le fichier (pas de tube, pas de substitution de commande).
@@ -157,15 +277,21 @@ RM_PID=$!
 sleep 2
 say "  [preparation] /dev/veille en service (pid $RM_PID)"
 
-# 3) Les phases, en boucle : trois tours, puis l'invite interactive.
+# 3) Les phases, en boucle : deux tours de huit phases (~2 min 40), puis
+#    l'invite interactive reste en place pour les touches envoyées depuis la
+#    vitrine.
 CYCLE=1
-while [ "$CYCLE" -le 3 ]; do
+while [ "$CYCLE" -le 2 ]; do
     say ""
-    say "---------------- cycle $CYCLE / 3 ----------------"
+    say "---------------- cycle $CYCLE / 2 ----------------"
     phase_preuve
     phase_simulation
     phase_signal
     phase_cible
+    phase_reel
+    phase_charge
+    phase_cadence
+    phase_muet
     CYCLE=$((CYCLE + 1))
 done
 

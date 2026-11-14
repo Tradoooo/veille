@@ -33,13 +33,20 @@ core/src/signal.c core/src/signal_gen.c core/src/state.c core/src/verdict.c"
 
 # Includes ABSOLUS : le paquet compile depuis le répertoire de sortie.
 CFLAGS="-std=c11 -O2 -D_QNX_SOURCE -I$SRC/core/include -I$SRC/target/pipe \
--I$SRC/target/port -I$SRC/target/rm"
+-I$SRC/target/port -I$SRC/target/rm -I$SRC/target/replay"
 
 # Groupes « nom: fichiers » séparés par « ; ».
 SOURCES="veille-sim:target/sim/sim.c target/pipe/veille_pipe.c target/port/qnx_time.c $CORE"
 SOURCES="$SOURCES;veille-rm:target/rm/resmgr_veille.c target/rm/rm_chain.c \
 target/rm/rm_io.c target/pipe/veille_pipe.c target/port/qnx_time.c $CORE"
 SOURCES="$SOURCES;bench-client:tools/qnx/bench_client.c"
+SOURCES="$SOURCES;hog:tools/qnx/hog.c"
+SOURCES="$SOURCES;tick-probe:tools/qnx/tick_probe.c"
+# Rejeu du signal RÉEL (mitdb/222 embarqué, format 212 décodé en C) — voir
+# target/replay/replay_ecg.c. Il complete la demonstration : sans lui, les donnees
+# reelles ne se voyaient que depuis l'hôte (Python), jamais dans l'invite.
+SOURCES="$SOURCES;replay-ecg:target/replay/replay_ecg.c target/replay/replay_rapport.c \
+target/pipe/veille_pipe.c target/port/qnx_time.c $CORE"
 
 mkdir -p "$WORK"
 # Les fichiers reference par le buildfile en « ./nom » doivent etre presents
@@ -63,7 +70,8 @@ cd "$SRC"
 
 echo
 echo "== dépendances dynamiques des binaires (readelf -d) =="
-for b in "$WORK/veille-sim" "$WORK/veille-rm" "$WORK/bench-client"; do
+for b in "$WORK/veille-sim" "$WORK/veille-rm" "$WORK/bench-client" \
+         "$WORK/replay-ecg" "$WORK/hog" "$WORK/tick-probe"; do
     [ -f "$b" ] || continue
     echo "-- $b"
     readelf -d "$b" | sed -n 's/.*NEEDED.*\[\(.*\)\]/   \1/p'

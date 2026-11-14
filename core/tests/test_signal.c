@@ -89,9 +89,41 @@ static void test_pannes_capteur(void) {
     resultat bruyant = analyser(VEILLE_SIGGEN_NOISY, 250, 60, 1200, 1024);
     afficher("noisy", bruyant);
     if (bruyant.sensor != VEILLE_SENSOR_NOISY) echec("capteur bruité non détecté", bruyant.bpm);
-    resultat derive = analyser(VEILLE_SIGGEN_DRIFT, 250, 60, 1200, 1024);
+    /* Cinq spans de fenêtre (~10 s à 250 Hz) sont le TEMPS D'INSTALLATION de la
+     * détection : avec 1024 échantillons (deux spans), la rampe n'est pas encore
+     * confirmée et l'état reste OK — c'est le comportement voulu, pas un bug.
+     * Le test porte donc sur SIX spans, et le cas à deux spans est vérifié à part
+     * juste en dessous. */
+    resultat derive = analyser(VEILLE_SIGGEN_DRIFT, 250, 60, 1200, 6 * VEILLE_SIG_WINDOW_MAX);
     afficher("drift", derive);
-    if (derive.sensor != VEILLE_SENSOR_DRIFT) echec("dérive non détectée", derive.bpm);
+    if (derive.sensor != VEILLE_SENSOR_DRIFT) echec("dérive non détectée sur six spans", derive.bpm);
+    resultat jeune = analyser(VEILLE_SIGGEN_DRIFT, 250, 60, 1200, 2 * VEILLE_SIG_WINDOW_MAX);
+    afficher("drift-2spans", jeune);
+    if (jeune.sensor != VEILLE_SENSOR_OK)
+        echec("dérive déclarée avant cinq ancres (temps d'installation non tenu)", jeune.bpm);
+}
+
+/* PROPRIÉTÉ 5 : la dérive RESPIRATOIRE d'un patient n'est pas une panne
+ * d'électrode. Signal construit ici (et non dans core/signal_gen.c) pour ne pas
+ * toucher au générateur partagé avec le jumeau Python : une ligne de base qui
+ * monte sur deux spans puis redescend ne doit jamais donner DRIFT. C'est le cas
+ * qui produisait 17,9 % à 31,8 % de fausses alarmes techniques sur MIT-BIH. */
+static void test_wander_respiratoire(void) {
+    veille_signal_buffer b;
+    veille_signal_buffer_init(&b, 250);
+    const long periode = 4 * 250;                 /* cycle respiratoire : 4 s */
+    for (long i = 0; i < 12 * 250; i++) {
+        long phase = i % periode;
+        long base = (phase < periode / 2) ? (200 * phase) / (periode / 2)
+                                          : 200 - (200 * (phase - periode / 2)) / (periode / 2);
+        long qrs = ((i % 250) < 6) ? 1200 : 0;    /* QRS à 60 bpm */
+        veille_signal_push(&b, (int16_t)(base + qrs));
+    }
+    veille_sensor_state s = veille_signal_sensor_state(&b);
+    printf("  wander  -> sensor=%s bpm=%ld\n", veille_sensor_state_name(s),
+           veille_signal_rate_bpm(&b));
+    if (s == VEILLE_SENSOR_DRIFT) echec("dérive respiratoire prise pour une panne capteur", 0);
+    if (s != VEILLE_SENSOR_OK) echec("signal respiratoire sain qualifié d'autre défaut", 0);
 }
 
 /* Mode CLI : une ligne de résultat pour le différentiel C↔Python. */
@@ -131,6 +163,7 @@ int main(int argc, char **argv) {
     test_rythme_regulier();
     test_tachycardie();
     test_pannes_capteur();
+    test_wander_respiratoire();
     printf("[OK] test_signal vert (plat ⇒ figé ; régulier ⇒ vivant ; tachy ⇒ alarme)\n");
     return 0;
 }

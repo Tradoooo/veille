@@ -117,6 +117,16 @@ toybox = usr/bin/toybox
 veille-sim = ./veille-sim
 veille-rm = ./veille-rm
 bench-client = ./bench-client
+# Rejeu du signal RÉEL dans l'invité : octets du record mitdb/222 embarqués dans
+# l'IFS (target/replay/mitdb222_212.h), décodage format 212 en C, empreinte
+# SHA-256 par core/sha256.c. Aucun paquet optionnel n'est nécessaire (ni Python,
+# ni libcrypto) — l'invitation reste viable sur une image socle.
+replay-ecg = ./replay-ecg
+# Outils de preuve : charge CPU calibrée (E2 : l'héritage de priorité n'est
+# discriminant que sous charge) et sonde indépendante de la cadence du tick
+# noyau (E3).
+hog = ./hog
+tick-probe = ./tick-probe
 demo.sh = ./demo.sh
 # ------------------------------------------------------------------ profil
 /etc/profile = ./etc-profile
