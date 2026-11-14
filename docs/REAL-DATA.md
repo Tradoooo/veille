@@ -313,7 +313,7 @@ l'invité.
    en C par `replay-ecg` dans l'invité. L'empreinte du fichier source complet est
    vérifiée à la génération, pas recalculée dans l'invité (qui ne dispose pas du
    fichier complet) ; le rapport d'audit S5 porte l'empreinte de configuration,
-   pas celle du signal. Voir `docs/QNX-EVIDENCE.md` §3.4a.
+   pas celle du signal. Voir `docs/QNX-DEMO.md` §3.4a.
 10. **La copie embarquée est figée au moment de la génération.** Pour la
    régénérer depuis le fichier PhysioNet complet :
    `python3 tools/qnx/extrait222.py /chemin/222.dat /chemin/SHA256SUMS.txt > target/replay/mitdb222_212.h`.
