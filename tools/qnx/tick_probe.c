@@ -58,9 +58,10 @@ int main(int argc, char **argv) {
     long period_us = 10000L, duration_us = 20000000L;
     int prio = 0, lignes = 0;
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--format") && i + 2 < argc) {
+        if (!strcmp(argv[i], "--format") && i + 1 < argc) {
             i++;
             lignes = !strcmp(argv[i], "lignes");
+            continue;   /* l'argument suivant est la VALEUR, pas une option */
         }
         if (!strcmp(argv[i], "--period-ms") && i + 1 < argc) period_us = atol(argv[++i]) * 1000L;
         else if (!strcmp(argv[i], "--duration-ms") && i + 1 < argc) duration_us = atol(argv[++i]) * 1000L;
