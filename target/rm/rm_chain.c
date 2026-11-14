@@ -219,6 +219,7 @@ void veille_rm_watchdog(veille_dev_t *dev) {
     if (silence_ms < dev->wd_ms || dev->wd_fired) return;
     dev->wd_fired = 1;
     dev->wd_count++;
+    dev->wd_fire_silence_ms = silence_ms;   /* l'instant de l'alarme, figé */
     char msg[96];
     snprintf(msg, sizeof(msg),
              "capteur muet - aucun echantillon depuis %ld ms (seuil %d ms)",
