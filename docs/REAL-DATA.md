@@ -249,6 +249,26 @@ arrondie) ; `--temps-reel` espace les écritures selon l'intervalle R-R réel.
 
 ## 8. Limites (à lire avant toute citation)
 
+### 8.0 Rejeu C natif dans l'invité QNX 8.0 (extrait MIT-BIH 222)
+
+La démonstration VGA ne dépend plus de Python pour son signal réel :
+`target/replay/replay_ecg.c` embarque les **10 800 premiers octets** du fichier
+original `mitdb/222.dat` dans `target/replay/mitdb222_212.h`, puis décode le
+format WFDB 212 directement dans l'invité QNX 8.0. L'empreinte du fichier
+complet (`0510bf39ed2925a83debd249492bdfe77c575148376aaabeba4c7b7a2451ac5d`)
+est vérifiée contre `SHA256SUMS.txt` lors de la génération de l'en-tête.
+
+Résultat mesuré dans l'émulateur, phase 5/8 : **3600 échantillons**, 3238
+fréquences rapportées (65–87 bpm, moyenne 77), état `sensor_ok`, **0 alarme
+technique**. Le signal brut passe par le pipeline C (`veille_pipe_push_sample`),
+ce n'est pas un rejeu de BPM fabriqué.
+
+Le rejeu intégral de 30 minutes (2401 BPM écrits dans `/dev/veille`) reste une
+expérience différente : `host/veille/resmgr_client.py` le pilote depuis l'hôte.
+Il ne faut pas présenter cette expérience hôte comme un décodage C intégral dans
+l'invité.
+
+
 1. ~~**Les annotations `.atr` ne sont PAS parsées.**~~ **Corrigé** : les
    annotations `.atr` MIT-BIH **sont maintenant décodées** par
    `veille.wfdb.lire_annotations` (format WFDB binaire « MIT », spécifié par
@@ -288,3 +308,13 @@ arrondie) ; `--temps-reel` espace les écritures selon l'intervalle R-R réel.
    en-têtes BIDMC indiquent âge, sexe et unité de soins, sans identité.
    Aucune donnée identifiante n'est présente, mais ces jeux restent des
    données de patients réels : usage de recherche uniquement.
+9. **Données embarquées sur cible (rejeu court)** : un extrait de 10 s du record
+   222 est embarqué octet par octet dans l'IFS ; son format WFDB 212 est décodé
+   en C par `replay-ecg` dans l'invité. L'empreinte du fichier source complet est
+   vérifiée à la génération, pas recalculée dans l'invité (qui ne dispose pas du
+   fichier complet) ; le rapport d'audit S5 porte l'empreinte de configuration,
+   pas celle du signal. Voir `docs/QNX-EVIDENCE.md` §3.4a.
+10. **La copie embarquée est figée au moment de la génération.** Pour la
+   régénérer depuis le fichier PhysioNet complet :
+   `python3 tools/qnx/extrait222.py /chemin/222.dat /chemin/SHA256SUMS.txt > target/replay/mitdb222_212.h`.
+   La génération s'arrête si l'empreinte publiée diffère.
