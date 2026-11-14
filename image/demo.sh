@@ -215,17 +215,19 @@ phase_charge() {
 # coalisé — le rm, lui, ne voit que ce qu'il sert.
 phase_cadence() {
     phase "PHASE 7/8  CADENCE  -  E3 : tick noyau, sonde independante"
-    tick-probe --period-ms 10 --duration-ms 3000 --prio 62 > "$OUT" 2>&1
-    # Une seule ligne de mesure, coupee en deux affichages lisibles (l'ecran
-    # fait 80 colonnes ; au-dela la ligne se replie et devient illegible).
-    # tick-probe rend : pulses, duree_us, taux_hz, min_us, max_us, moyenne_us,
-    # maxdev_us, coalesced — d'ou deux motifs, un par moitié.
-    champ pulses "$OUT"
-    champ taux_hz "$OUT"
-    champ maxdev_us "$OUT"
-    champ coalesced "$OUT"
+
+    # Une mesure par ligne : c'est le FORMAT du binaire (--format lignes), pas une
+    # découpe faite ici. Deux pièges payés : la ligne unique de tick-probe fait 118
+    # colonnes (l'écran en fait 80 — la fin, maxdev_us et coalesced, sautait) et
+    # `grep -o` n'existe pas dans le toybox de l'image (une extraction par champ
+    # n'y rendait donc rien, sans message d'erreur).
+    tick-probe --period-ms 10 --duration-ms 3000 --prio 62 --format lignes > "$OUT" 2>&1
+    pick "pulses=" "$OUT"
+    pick "taux_hz=" "$OUT"
+    pick "maxdev_us=" "$OUT"
+    pick "coalesced=" "$OUT"
     bench-client stats > "$STATS" 2>&1
-    champ tick_period_us "$STATS"
+    pick "tick_period_us=" "$STATS"
     say ""
     say "  pulses : pulses servis sur le canal PROPRE de la sonde (pas le rm)."
     say "  taux_hz : cadence reellement produite par le timer noyau."
@@ -251,14 +253,19 @@ phase_muet() {
     # Le journal du client porte deux verdicts : PENDANT le silence, puis APRES le
     # retour du signal. Les deux sont intéressants : l'alarme doit monter, puis se
     # LEVER d'elle-même (pas d'acquittement manuel).
-    pick "VEILLE_TECHNICAL_ALARM" "$OUT" 's/^\(....\)[ ]*VEILLE_TECHNICAL_ALARM.*state=\([^|]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 TECHNIQUE  capteur=\2  borne=\3 ms  latency=\4 ms/'
-    pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_OK.*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 OK  borne=\2 ms  latency=\3 ms/'
+    # core/report.c OMET un champ quand sa valeur est 0 (contrat §5.5 : « clés
+    # optionnelles omises quand absentes ») — latency=0 n'apparaît donc pas dans
+    # le verdict OK. Un motif qui l'exigerait ne matcherait pas, et n'afficherait
+    # RIEN sans message d'erreur : c'est exactement ce qui est arrivé à l'écran au
+    # premier boot. Les motifs ci-dessous ne dépendent que de champs toujours présents.
+    pick "VEILLE_TECHNICAL_ALARM" "$OUT" 's/^\(....\)[ ]*VEILLE_TECHNICAL_ALARM.*state=\([^|]*\).*bound=\([0-9]*\).*/\1 TECHNIQUE  capteur=\2  borne=\3 ms/'
+    pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_OK.*bound=\([0-9]*\).*/\1 OK  borne=\2 ms/'
     bench-client stats > "$STATS" 2>&1
-    champ wd_count "$STATS"
-    champ wd_silence_ms "$STATS"
+    pick "wd_count=" "$STATS"
+    pick "wd_silence_ms=" "$STATS"
     say ""
     say "  Le silence du capteur est une alarme TECHNIQUE bornee, pas un trou."
-    say "  Le verdict porte l'ETAT (sensor_dead), la borne et la latence mesuree."
+    say "  wd_count : alarmes declenchees ; wd_silence_ms : silence mesure."
     say "  --- rapport d'audit (cible) : P1 sur 4800 etats ---"
     replay-ecg --preuve --rapport markdown --quiet > "$RAPPORT" 2>&1
     # Le rapport sort en UTF-8 (core/report.c — la syntaxe du CONTRAT, pas une
