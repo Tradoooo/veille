@@ -156,6 +156,12 @@ static size_t stats_core(const veille_dev_t *dev, char *buf, size_t cap, size_t 
     off = stats_put(buf, cap, off, "wd_count", dev->wd_count);
     off = stats_put(buf, cap, off, "wd_fired", dev->wd_fired);
     off = stats_put(buf, cap, off, "wd_silence_ms", dev->wd_silence_ms);
+    /* Silence AU MOMENT DU DÉCLENCHEMENT : c'est le chiffre qui prouve que la
+     * borne tient. wd_silence_ms est réécrit à chaque pulse de surveillance —
+     * après le retour du signal, il retombe au silence courant et ne dit plus
+     * rien de la panne (mesuré : 29 ms affichés pour une alarme déclenchée
+     * après 1,2 s de silence). */
+    off = stats_put(buf, cap, off, "wd_fire_silence_ms", dev->wd_fire_silence_ms);
     off = stats_put(buf, cap, off, "uptime_us", dev->uptime_us);      /* E3 */
     off = stats_put(buf, cap, off, "ticks", dev->n_ticks);            /* E3 */
     off = stats_put(buf, cap, off, "tick_period_us", dev->tick_period_us);
