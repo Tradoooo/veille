@@ -208,10 +208,12 @@ phase_charge() {
 phase_cadence() {
     phase "PHASE 7/8  CADENCE  -  E3 : tick noyau, sonde independante"
     tick-probe --period-ms 10 --duration-ms 3000 --prio 62 > "$OUT" 2>&1
-    # Une seule ligne de mesure, decoupee en deux affichages lisibles (l'ecran
+    # Une seule ligne de mesure, coupee en deux affichages lisibles (l'ecran
     # fait 80 colonnes ; au-dela la ligne se replie et devient illegible).
-    pick "tick_probe" "$OUT" 's/tick_probe pulses=/pulses/'
-    pick "tick_probe" "$OUT" 's/.*maxdev_us=/maxdev_us/;s/ coalesced=/ coalesces=/'
+    # tick-probe rend : pulses, duree_us, taux_hz, min_us, max_us, moyenne_us,
+    # maxdev_us, coalesced — d'ou deux motifs, un par moitié.
+    pick "tick_probe" "$OUT" 's/^tick_probe pulses=/pulses/'
+    pick "tick_probe" "$OUT" 's/.*maxdev_us=/maxdev_us/;s/.*coalesced=/coalesces=/'
     bench-client stats > "$STATS" 2>&1
     pick "tick_period_us" "$STATS"
     pick "tick_coalesced" "$STATS"
@@ -237,16 +239,19 @@ phase_muet() {
     # Le journal du client porte deux verdicts : PENDANT le silence, puis APRES le
     # retour du signal. Les deux sont intéressants : l'alarme doit monter, puis se
     # LEVER d'elle-même (pas d'acquittement manuel).
-    pick "capteur muet" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  borne=\3 ms  latency=\4 ms/'
-    pick "capteur fige" "$OUT"
+    pick "VEILLE_TECHNICAL_ALARM" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*state=\([^ ]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  etat=\3  borne=\4 ms  latency=\5 ms/'
+    pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_\([A-Z_]*\).*bound=\([0-9]*\).*latency=\([0-9]*\).*/\1 VEILLE_\2  borne=\3 ms  latency=\4 ms/'
+    bench-client stats > "$STATS" 2>&1
+    pick "wd_count" "$STATS"
+    pick "wd_silence_ms" "$STATS"
     say ""
     say "  Le silence du capteur est une alarme TECHNIQUE bornee, pas un trou."
-    say "  Elle se leve des que le signal revient (verdict VERDICT_SIGNAL)."
+    say "  Le verdict porte l'ETAT (sensor_dead), la borne et la latence mesuree."
     say "  --- rapport d'audit (cible) : P1 sur 4800 etats ---"
     replay-ecg --preuve --rapport markdown --quiet > "$RAPPORT" 2>&1
     # Le rapport sort en UTF-8 (core/report.c — la syntaxe du CONTRAT, pas une
     # réimplementation) ; la console VGA est orientée OCTET : `pick` y retire les
-    # octets non ASCII, ce qui rend illISIBLES les titres accentués ("Synthèse" →
+    # octets non ASCII, ce qui rend illisibles les titres accentués ("Synthèse" →
     # "Synth se"). On cueille donc les lignes dont la CLÉ est en ASCII, et on
     # réécrit l'étiquette en ASCII : l'écran reste lisible, le contenu est la
     # sortie brute de core/report.c (aucune valeur inventée).
