@@ -26,17 +26,25 @@ FOUILLES = ["tests", "core/tests", "host/tests", "preuve", "docs/QNX-EVIDENCE.md
 # Couverture explicite (fichiers qui couvrent l'exigence sans en citer l'ID).
 # Le grep (ci-dessous) complète ; cette table fixe les cas où l'ID n'apparaît
 # pas littéralement dans les tests.
+# Couvertures explicitement non attribuées malgré des mentions textuelles :
+# une note qui dit « non démontré » ne transforme pas l'exigence en preuve.
+NON_COUVERTS = {"C3", "C5", "C8", "C9"}
+
 COUVERT = {
     "S1": ["core/src/chain.c", "core/include/veille/chain.h", "target/pipe/veille_pipe.c"],
     "S2": ["host/veille/chain.py", "host/veille/state.py", "host/veille/verdict.py"],
     "S3": ["tests/differential.py", "host/tests/test_proof.py"],
     "S4": ["core/src/proof.c", "core/tests/test_proof.c", "host/tests/test_proof.py"],
-    "S5": ["core/src/report.c", "core/src/verdict.c"],
+    "S5": ["core/src/report.c", "core/src/verdict.c", "core/src/sha256.c", "core/tests/test_sha256.c", "target/replay/replay_rapport.c"],
     "S6": ["target/pipe/veille_pipe.c", "scenarios/signal_dead.json", "scenarios/signal_flat_60.json"],
     "S7": ["Makefile", ".github/workflows/ci.yml"],
     "S8": [".github/workflows/ci.yml", ".github/workflows/ci-budget.yml"],
     "C1": ["target/rm/resmgr_veille.c", "target/rm/rm_io.c", "docs/QNX-EVIDENCE.md"],
+    "C2": ["target/rm/resmgr_veille.c", "tools/qnx/tick_probe.c", "docs/QNX-EVIDENCE.md"],
+    "C3": [],
     "C4": ["core/src/proof.c", "tests/differential.py", "docs/QNX-EVIDENCE.md"],
+    "C6": ["target/rm/resmgr_veille.c", "target/rm/rm_chain.c", "docs/QNX-EVIDENCE.md"],
+    "C7": ["image/buildfile", "image/build-image.sh", "docs/QNX-EVIDENCE.md"],
 }
 
 
@@ -53,6 +61,8 @@ def extraire_exigences() -> list[tuple[str, str, str]]:
 
 def couverture(ident: str) -> list[str]:
     """Fichiers (relatifs à la racine) qui mentionnent l'identifiant."""
+    if ident in NON_COUVERTS:
+        return []
     hits = list(COUVERT.get(ident, []))
     for dossier in FOUILLES:
         base = RACINE / dossier

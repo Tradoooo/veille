@@ -34,6 +34,19 @@ Le compte rendu factuel est [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md).
    et le code de retour, lecture via `resmgr_msgget`, une valeur par écriture,
    `O_CREAT` sur périphérique, disconnect parasite).
    — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §4.
+6. **Les données RÉELLES tournent dans l'invité, pas seulement depuis l'hôte.**
+   Les 3600 premiers échantillons du record MIT-BIH 222 (fibrillation
+   atriale) sont embarqués dans l'IFS et décodés **dans l'invité QNX 8.0**
+   (format 212, en C) : 3238 fréquences mesurées, **0 alarme technique** sur un
+   rythme irrégulier mais vivant. C'est ce rejeu — et non un signal synthétique —
+   qui a fait tomber le faux positif « capteur qui dérive » (voir §7).
+   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4a et §3.4d.
+7. **Le rapport d'audit (S5/M5) est produit SUR la cible**, avec l'empreinte
+   SHA-256 de la configuration gelée calculée par `core/sha256.c` (pur C11, sans
+   dépendance) — identique à celle du jumeau Python (`hashlib`), vérifié par le
+   différentiel. Le rejeu de 30 minutes du record 222, lui, reste un client
+   Python sur l'hôte (voir §3.4b).
+   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4d, `core/tests/test_sha256.c`.
 
 ## 2. Ce que la preuve n'établit PAS
 
@@ -73,16 +86,20 @@ clinique** (voir §5), et des **jeux de données de patients différents** (voir
 
 ## 4. Limites de l'émulateur — pas du matériel
 
-- La cible est un **x86_64 virtualisé** (QEMU + KVM, image QNX Everywhere Quick
-  Start). Aucune mesure ne vaut pour un vrai moniteur patient ni pour une cible
-  **embarquée** (ARM/SoC médical, horloges et bus réels).
+- La cible est un **x86_64 virtualisé** (QEMU + TCG, image QNX Everywhere Quick
+  Start). Le r630 possède `/dev/kvm`, mais l'unité courante ne passe pas
+  `-enable-kvm` : la démo tourne sous émulation CPU. Aucune mesure ne vaut pour
+  un vrai moniteur patient ni pour une cible **embarquée** (ARM/SoC médical,
+  horloges et bus réels).
   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §1 et §6.
 
 ## 5. Statut non clinique
 
-- Le signal **saisi** par `/dev/veille` est du **bpm déduit de l'ECG réel par le
-  client** ; le rejeu du signal brut (acquisition → filtrage) n'est fait que par
-  le **jumeau Python**.
+- Le signal **saisi** par `/dev/veille` est du **bpm** : soit déduit de l'ECG
+  réel par un client Python **sur l'hôte** (rejeu de 30 min), soit par le client
+  `replay-ecg` **dans l'invité** (extrait de 10 s embarqué, format 212 décodé en
+  C). Le rejeu du signal brut **complet** (30 min, acquisition → filtrage) n'a
+  été fait que par le **jumeau Python** : l'extrait embarqué couvre 10 s.
 - La **détection de pics R est heuristique** (seuil adaptatif, non clinique) :
   sur un ECG réel en fibrillation atriale, le bpm oscille fortement.
   — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §6, [`docs/REAL-DATA.md`](REAL-DATA.md) « limites ».
@@ -100,14 +117,34 @@ clinique** (voir §5), et des **jeux de données de patients différents** (voir
   sous-ensemble *matched* a été reprocessé par PhysioNet.
   — [`docs/REAL-DATA.md`](REAL-DATA.md) §1.1–1.2.
 
-## 7. Défaut connu de la détection « capteur figé »
+## 7. Détection « capteur figé » : sur le signal brut, mais avec un temps d'installation
 
 - La chaîne déclenche l'alarme « capteur figé » dès que **deux valeurs de bpm
-  consécutives arrondies sont égales**. Sur un ECG réel, c'est un vrai
-  enseignement : le diagnostic doit porter sur le **signal brut** et non sur le
-  bpm arrondi. **Ce défaut est en cours de correction**, au niveau du signal.
-  — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §6,
+  consécutives arrondies sont égales** (chemin historique). Sur un ECG réel,
+  c'est un vrai enseignement : le diagnostic doit porter sur le **signal brut**
+  et non sur le bpm arrondi. **Ce défaut est corrigé** : le chemin de signal
+  brut (`veille_pipe_push_sample` → `core/signal.c`) déduit l'état capteur des
+  ÉCHANTILLONS, et le rejeu du record 222 (fibrillation atriale) rend
+  **0 alarme technique** — mesuré dans l'invité QNX 8.0, phase 5 de la
+  démonstration.
+  — [`docs/QNX-EVIDENCE.md`](QNX-EVIDENCE.md) §3.4a,
   [`docs/REAL-DATA.md`](REAL-DATA.md) « limites ».
+- **Ce que la correction a coûté, et qui reste une limite assumée :** la
+  détection « capteur qui dérive » exige une rampe de la ligne de base **sans
+  inversion sur cinq fenêtres** (~10 s à 250 Hz). C'est ce qui écarte la
+  **dérive respiratoire du patient** — qui, avec le critère à une seule fenêtre,
+  faisait passer 31,8 % / 31,3 % / 17,9 % des lectures de MIT-BIH 100 / 205 /
+  222 pour une panne d'électrode (mesuré le 14/11 sur 40 s de chaque record,
+  19 968 lectures). Contrepartie : **une dérive n'est déclarée qu'après ~10 s**,
+  et la fenêtre d'analyse doit être remplie (512 échantillons, ~1,4 s à 360 Hz)
+  avant toute qualification — un moniteur n'alarme pas sur un signal qu'il n'a
+  pas encore regardé.
+- **La dérive n'est donc pas bornée par `B_tech` (50 ms).** `B_tech` reste la
+  borne des événements brusques (capteur mort, capteur figé, déconnexion d'un
+  pair). La dérive est une **défaillance lente** : son délai de détection est
+  un temps d'installation, pas une latence d'alarme.
+  — [`core/include/veille/signal.h`](../core/include/veille/signal.h)
+  (constante `VEILLE_SIG_ANCRAGES` et sa justification chiffrée).
 
 ## 8. Ce qui rendrait la preuve plus forte
 

@@ -101,7 +101,37 @@ grandeur de temps Machine.
 
 Journal : `preuve/qnx80/preuve-resmgr-cible-*.log`.
 
-### 3.4 Données réelles (PhysioNet) rejouées **dans** l'émulateur
+Cette phase contient deux rejeu bien distincts — et ne prétend pas au-delà.
+
+### 3.4a — Rejeu réel visible dans la démo VGA (record 222, 10 s embarqué)
+
+Depuis le commit `42d64ca` (PR #26, CI verte), les **3600 échantillons bruts** du
+record MIT-BIH 222 (fibrillation atriale, canal MLII, 360 Hz, 10 secondes)
+sont embarqués *octet par octet* dans `target/replay/mitdb222_212.h` — 10 800
+octets du fichier PhysioNet original, format 212 entrelacé, SHA-256 du fichier
+complet vérifié contre `SHA256SUMS.txt` à la génération. Dans l'invité QNX 8.0,
+`replay-ecg` décode le format 212 et fait passer les échantillons bruts dans le
+pipeline C partagé : **3600 échantillons, 3238 fréquences mesurées (65–87 bpm,
+moyenne 77), 0 alarme technique**. Résultat capturé en direct dans la phase 5
+sur la console VGA + série de l'invité (vérifié le 14/11 à 16 h 19). Ça démontre
+que le chemin de SIGNAL BRUT ne confond pas un rythme irrégulier mais vivant
+avec un capteur figé — pas que le détecteur de pics est cliniquement validé.
+
+L'empreinte SHA-256 du fichier complet sert à la provenance de l'extrait
+embarqué. Le rapport d'audit S5, lui, porte l'empreinte de la **configuration
+** (`c8faf69b…`, calculée sur la cible par `core/sha256.c`, pur C11). Le rapport
+ne porte PAS le hash de l'extrait : ne pas confondre les deux.
+
+### 3.4b — Rejeu hors démo (2401 BPM MIT-BIH 222, 30 min)
+
+Le rejeu intégral du record 222, lui, reste un client **Python sur l'hôte**
+(`host/veille/resmgr_client.py`) qui écrit 2401 valeurs BPM dérivées dans
+`/dev/veille`. Il n'est pas décodé dans le noyau QNX. Ça prouve que le resource
+manager accepte des BPM dérivés de données réelles — pas que le pipeline C de
+l'invité a traité 30 minutes d'ECG brut. Son journal est dans
+`preuve/qnx80/preuve-replay-mitdb*-*.log`.
+
+### 3.4c — Rejets de données réelles (conduits depuis l'hôte)
 
 | Jeu | Enregistrement | Signal | Résultat sur cible |
 |---|---|---|---|
@@ -112,7 +142,8 @@ Journal : `preuve/qnx80/preuve-resmgr-cible-*.log`.
 | BIDMC | bidmc01 | ECG + PLETH + SpO2 | SpO2 réel lu 96–98 %, HR 88–95 bpm |
 | MIT-BIH Polysomnographic | slp02a | ECG + pression artérielle | PA réelle : 41 → 109,47 mmHg |
 
-Le rapport d'audit produit **sur la cible** porte l'empreinte du fichier source :
+Le rapport d'audit produit **sur la cible** (client Python) porte l'empreinte du
+fichier source :
 
 ```
 - Configuration : /data/veille-data/mitdb/105
@@ -122,6 +153,44 @@ Le rapport d'audit produit **sur la cible** porte l'empreinte du fichier source 
 
 Journaux : `preuve/qnx80/preuve-replay-mitdb*-*.log`,
 `preuve/qnx80/preuve-reel-*-*.log`, `preuve/qnx80/preuve-vt205-cible-*.log`.
+
+### 3.4d — La démonstration de l'invité : huit phases, tout dans l'émulateur
+
+Depuis la PR #26, le scénario joué au démarrage de l'invité (`image/demo.sh`,
+lancé par `.profile` dans la session VGA unique) fait **huit phases**, toutes
+exécutées dans QNX 8.0, toutes visibles sur l'écran VGA :
+
+| Phase | Ce qui est démontré dans l'invité | Relevé (console série, 14/11) |
+|---|---|---|
+| 1/8 PREUVE | exploration exhaustive des 4800 états | `VEILLE_PROOF_COMPLETE bound=200 states=4800` |
+| 2/8 SIMULATION | 600 échantillons, pannes injectées | 291 alarmes physio, 8 techniques, `L_measured ≤ B_proof` |
+| 3/8 SIGNAL BRUT | les 4 états capteur | figé / tachy / mort / régulier |
+| 4/8 CIBLE | resource manager `/dev/veille` + client de mesure + verdict | `min_us=9 max_us=79 moyenne_us=31` |
+| 5/8 SIGNAL RÉEL | décodage 212 du record 222 **dans l'invité** | 3600 échantillons, `sensor_ok`, **0 alarme technique** |
+| 6/8 CHARGE | E2 : héritage de priorité du noyau | `prio_base=10` → `prio_effective=40` (client à 40, hog à 30) |
+| 7/8 CADENCE | E3 : tick noyau, sonde indépendante | `pulses=298`, `taux_hz=99.04`, `maxdev_us=27832` |
+| 8/8 CAPTEUR MUET | E4 : watchdog + rapport d'audit S5 | `wd_count=1`, `wd_fire_silence_ms=801`, empreinte `c8faf69b…` |
+
+Deux tours de huit phases, puis l'invite interactive reste en place (les touches
+envoyées depuis la vitrine web arrivent dans l'invité QNX).
+
+Précautions de lecture, à ne pas passer sous :
+- **Écran VGA 80×25, console orientée octet.** Le scénario y présente les
+  mesures sous forme ASCII (≤ 76 colonnes) : `pick` retire les octets non ASCII
+  et coupe les lignes longues. C'est une **présentation**, pas un calcul — les
+  journaux bruts (sortie complète de `veille-sim`, verdicts intégraux) restent
+  dans la console série et dans `/dev/shmem/`. Les phrases accentuées du
+  simulateur (`sûreté`, `prouvée`) perdent leurs lettres accentuées à l'écran ;
+  les chiffres, eux, sont intacts.
+- **E3 sous TCG.** L'invité tourne sous QEMU *sans KVM* (le r630 a `/dev/kvm`
+  mais l'unité `veille-qemu` ne l'utilise pas) : `maxdev_us=27832` (27,8 ms
+  d'écart à la période demandée de 10 ms) inclut le surcoût d'émulation CPU. Ce
+  n'est PAS une propriété du noyau QNX sur cible réelle. La lecture honnête :
+  « le timer noyau tient la cadence demandée à ~1 % près sur un invité émulé »,
+  pas « le tick QNX est exact à 10 ms ».
+- **E2 conditionnel.** `prio_effective=40` prouve que le noyau a hisse le
+  serveur à la priorité de son client ; l'effet *contrefactuel* (sans héritage,
+  le serveur serait préempté) reste ce qu'il est — voir §5.1.
 
 ## 4. Défauts trouvés en passant sur la vraie cible (corrigés)
 
@@ -452,22 +521,32 @@ manque assumé, pas une preuve.
 
 ## 8. Limites de cette preuve
 
-- **Émulateur, pas du matériel** : la cible est un x86_64 virtualisé (KVM). Aucune
-  mesure ne vaut pour un vrai moniteur patient ni pour une cible QNX embarquée.
+- **Émulateur, pas du matériel** : la cible est un invité QNX x86_64 dans QEMU.
+  L'unité courante (`veille-qemu.service` sur le r630, 14/11/2026) ne passe pas
+  `-enable-kvm` : **TCG, pas KVM**. Aucune mesure ne vaut pour un vrai moniteur
+  patient ni pour une cible QNX embarquée.
 - **Contention de l'hôte** : pendant la campagne, plusieurs autres machines
   virtuelles QEMU tournaient sur le même poste. Cela dégrade la cadence du
   timer (§5.2) et et probablement les queues de latence (§6). Les chiffres sont donc
   **pessimistes** par rapport à une machine dédiée — et **non reproductibles à
   l'identique** d'une exécution à l'autre (dérive de 82 à 98 Hz observée sur
   la sonde).
-- **Signaux cliniques simulés à l'entrée du resource manager** : `/dev/veille`
-  reçoit du bpm (déduit de l'ECG réel par le client). Le rejeu du signal brut
-  (acquire → filter) n'est fait que par le jumeau Python.
+- **Deux chemins distincts pour les données réelles, et il faut les distinguer.**
+  (a) Le resource manager `/dev/veille` reçoit du **bpm** : soit écrit par un
+  client Python sur l'hôte (30 min du record 222), soit — pour la démonstration
+  VGA — par le client `replay-ecg` **dans l'invité**, qui décode le format 212
+  et fait passer les échantillons bruts dans le pipeline C avant d'écrire les
+  bpm. (b) Le rejeu du signal brut (acquire → filter → decide) **dans l'invité**
+  n'est fait que sur l'extrait embarqué de 10 s (phase 5) : il n'a jamais été
+  fait sur 30 minutes d'ECG, ni en C, ni dans l'invité.
 - **Détection de pics R heuristique** (seuil adaptatif, non clinique) : les bpm
-  extraits d'un ECG réel en fibrillation atriale oscillent fortement, et le
-  « capteur figé » de la chaîne se déclenche dès que deux bpm consécutifs
-  arrondis sont égaux — c'est un vrai enseignement des données réelles, à traiter
-  au niveau du signal brut plutôt que du bpm.
+  extraits d'un ECG réel en fibrillation atriale oscillent fortement. Sur le
+  chemin **bpm** (historique), « capteur figé » se déclenche dès que deux bpm
+  consécutifs arrondis sont égaux — c'est l'enseignement des données réelles
+  qui a fait basculer le diagnostic sur le signal brut. Sur le chemin **signal
+  brut** (celui de la phase 5), le défaut est corrigé : le rejeu du 222 rend
+  0 alarme technique. Le chemin bpm, lui, garde ce comportement — c'est
+  documenté, pas oublié.
 - **Pas de trace noyau** : l'outil `traceprinter` du SDP installé refuse la
   trace capturée sur cible (*internal error code(12)*, format de trace plus
   récent que le SDP). E2 repose donc sur l'observation comportementale de la
@@ -478,7 +557,7 @@ manque assumé, pas une preuve.
 | Point | État | Pourquoi |
 |---|---|---|
 | **E2 — garantie « le client prioritaire n'attend pas plus de X »** | **non démontrée** | L'héritage est observé (§5.1) mais l'attente maximale mesurée atteint 90 ms et aucune borne n'est établie. Le rm n'a pas de fil de service à priorité fixe. |
-| **E3 — cadence 10 ms tenue** | **non démontrée (mesurée et défavorable)** | 92–98 Hz, écart max 69–103 ms sur cette cible virtualisée ; la sonde indépendante montre le même ordre de grandeur. |
+| **E3 — cadence 10 ms tenue** | **non démontrée (mesurée, favorable sur l'émulateur, mais sous TCG)** | Campagne du 12/11 : 92–98 Hz, écart max 69–103 ms, sous contention d'hôte. Démonstration du 14/11 (invité dédié, phase 7) : 99,04 Hz (`pulses=298` en 3,001 s), `maxdev_us=27832`. L'écart est dominé par l'émulation CPU (QEMU sans KVM) : ce n'est pas une mesure de cible réelle. |
 | **E3 — délai end-to-end ≤ 200 ms** | **non démontré** | La borne prouvée ne couvre que la chaîne, pas l'attente du tick (jusqu'à 549 ms observés). |
 | **E4 — silence du capteur** | **démontré** | Alarme technique « capteur muet » émise et levée (§5.3). |
 | **E4 — notification de disconnect** | **démontrée mais grossière** | Elle arrive, mais ne distingue pas fermeture normale et mort du client. |
