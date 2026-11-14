@@ -110,7 +110,16 @@ typedef struct {
     int                   wd_fired;         /* alarme en cours (épisode) */
     unsigned long         wd_count;         /* nb d'alarmes « capteur muet » */
     long                  wd_last_us;       /* dernier échantillon vu (µs) */
-    long                  wd_silence_ms;    /* silence mesuré au dernier contrôle */
+    long                  wd_silence_ms;    /* silence mesuré au dernier contrôle (0 si le
+                                               signal est revenu : ce n'EST pas le chiffre
+                                               du déclenchement — voir wd_fire_silence_ms) */
+    long                  wd_fire_silence_ms; /* silence AU MOMENT OU L'ALARME A SONNÉ :
+                                               c'est lui qui prouve que la borne tient.
+                                               Mesuré sur l'invité : la vitrine affichait
+                                               wd_silence_ms, qui est réécrit par chaque
+                                               pulse de surveillance — après le retour du
+                                               signal, il retombe à ~20 ms et ne dit plus
+                                               rien de l'événement. */
 } veille_dev_t;
 
 /* rm_chain.c — chaîne et verdicts */

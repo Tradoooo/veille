@@ -233,7 +233,9 @@ phase_cadence() {
     say "  taux_hz : cadence reellement produite par le timer noyau."
     say ""
     say "  Cadence produite par le noyau (timer_create + pulse), pas par sleep()."
-    say "  L'ecart max est la dérive du tick ; il borne la latence d'acquisition."
+    say "  maxdev_us : plus grand ecart a la periode demandee (10 ms)."
+    say "  A savoir : l'invite tourne sous QEMU sans KVM (emulation CPU) — l'ecart"
+    say "  inclut ce surcout. Sur machine cible reelle, il est d'un autre ordre."
     pause 6
 }
 
@@ -262,10 +264,10 @@ phase_muet() {
     pick "VEILLE_OK" "$OUT" 's/^\(....\)[ ]*VEILLE_OK.*bound=\([0-9]*\).*/\1 OK  borne=\2 ms/'
     bench-client stats > "$STATS" 2>&1
     pick "wd_count=" "$STATS"
-    pick "wd_silence_ms=" "$STATS"
+    pick "wd_fire_silence_ms=" "$STATS"
     say ""
     say "  Le silence du capteur est une alarme TECHNIQUE bornee, pas un trou."
-    say "  wd_count : alarmes declenchees ; wd_silence_ms : silence mesure."
+    say "  wd_count : alarmes declenchees ; wd_fire_silence_ms : silence au tir."
     say "  --- rapport d'audit (cible) : P1 sur 4800 etats ---"
     replay-ecg --preuve --rapport markdown --quiet > "$RAPPORT" 2>&1
     # Le rapport sort en UTF-8 (core/report.c — la syntaxe du CONTRAT, pas une
