@@ -65,7 +65,10 @@ CASES = [("flat", 250, 60, 1200, 1024), ("flat", 250, 180, 1200, 1024),
          ("ecg", 250, 60, 1200, 1024), ("ecg", 250, 180, 1200, 1024),
          ("ecg", 250, 90, 1200, 1024),
          ("dead", 250, 60, 1200, 1024), ("noisy", 250, 60, 1200, 1024),
-         ("drift", 250, 60, 1200, 1024)]
+         # dérive : SIX spans de fenêtre — cinq ancres sont le temps d'installation
+         # de la détection (voir VEILLE_SIG_ANCRAGES dans core/include/veille/signal.h).
+         # À deux spans, les deux implémentations doivent rendre OK, pas DRIFT.
+         ("drift", 250, 60, 1200, 6 * 512), ("drift", 250, 60, 1200, 2 * 512)]
 
 
 def diff_signal():

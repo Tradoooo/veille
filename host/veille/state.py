@@ -57,6 +57,14 @@ SIG_HR_THRESHOLD = 120
 SIG_STUCK_PLAGE = 2
 SIG_BRUIT_PCT = 12
 SIG_DERIVE_FACTEUR = 4
+# Jumeau de VEILLE_SIG_ANCRAGES (core/include/veille/signal.h) : une dérive
+# n'est confirmée que si la ligne de base évolue SANS INVERSION sur cinq spans
+# de fenêtre (~10 s à 250 Hz). Motif, chiffré : le critère à un span classait
+# 31,8 % / 31,3 % / 17,9 % des lectures de MIT-BIH 100 / 205 / 222 en « dérive »
+# — c'était la dérive RESPIRATOIRE du patient, pas une panne d'électrode. Cinq
+# ancres (plus de deux cycles respiratoires) donnent 0 % de faux positifs sur
+# les trois records tout en détectant la rampe synthétique à 100 %.
+SIG_ANCRAGES = 5
 
 
 def _trunc_div(a, b):
@@ -151,7 +159,7 @@ class SignalGenerator:
 
 class SignalBuffer:
     """Jumeau de veille_signal_buffer (core/src/signal.c)."""
-    __slots__ = ("buf", "n", "fs_hz", "refractory")
+    __slots__ = ("buf", "n", "fs_hz", "refractory", "ancrages", "n_ancrages", "span")
 
     def __init__(self, fs_hz=0):
         if fs_hz <= 0:
@@ -162,6 +170,9 @@ class SignalBuffer:
             self.refractory = 1
         self.buf = []
         self.n = 0
+        self.ancrages = []          # lignes de base, la plus récente en tête
+        self.n_ancrages = 0
+        self.span = 0               # échantillons depuis le dernier ancrage
 
     def push(self, sample):
         if self.n < SIG_WINDOW_MAX:
@@ -169,14 +180,43 @@ class SignalBuffer:
             self.n += 1
         else:
             self.buf = self.buf[1:] + [sample]
+        self.span += 1
+        if self.span >= SIG_WINDOW_MAX:
+            self.span = 0
+            self.ancrages = [_median(self.buf)] + self.ancrages[:SIG_ANCRAGES - 1]
+            if self.n_ancrages < SIG_ANCRAGES:
+                self.n_ancrages += 1
+
+    def rampe_confirmee(self):
+        """1 si la ligne de base dérive sans inversion sur tous les ancres.
+
+        Jumeau de rampe_confirmee() (core/src/signal.c) : les différences entre
+        ancres consécutives doivent être non nulles et de même signe. Un cycle
+        respiratoire (~4 s, deux spans) inverse le sens et invalide la dérive.
+        """
+        if self.n_ancrages < SIG_ANCRAGES:
+            return False                        # temps d'installation
+        a = self.ancrages[:SIG_ANCRAGES]
+        premier = a[0] - a[1]
+        if premier == 0:
+            return False
+        for i in range(1, SIG_ANCRAGES - 1):
+            d = a[i] - a[i + 1]
+            if d == 0 or (d > 0) != (premier > 0):
+                return False
+        return True
 
     def window_full(self):
         return self.n >= SIG_WINDOW_MAX
 
 
-def _sensor_state(buf):
+def _sensor_state(buf, ancrages=None):
     x = buf
-    if len(x) < 2:
+    # Miroir du C : rien n'est qualifié avant que la fenêtre d'analyse soit
+    # remplie (512 échantillons). Sur le record 222, les huit premiers
+    # échantillons — ligne de base plate — faisaient rendre « capteur figé »
+    # pendant le remplissage du tampon : un artefact de démarrage, pas une panne.
+    if len(x) < SIG_WINDOW_MAX:
         return SensorState.OK
     lo = hi = x[0]
     zeros = True
@@ -196,8 +236,17 @@ def _sensor_state(buf):
     if mdiff > 0 and mdiff * 100 > SIG_BRUIT_PCT * plage:
         return SensorState.NOISY
     echelle = mdiff if mdiff > 0 else 1
-    if _quarter_shift(x) > SIG_DERIVE_FACTEUR * echelle:
-        return SensorState.DRIFT
+    # Dérive : rampe confirmée sur cinq spans ET ample (quatre fois l'échelle du
+    # bruit d'un échantillon). Les deux conditions sont nécessaires — l'amplitude
+    # seule attrape la respiration, la monotonie seule ne dit rien d'une dérive
+    # négligeable. Sans ancrages (liste nue passée par un appelant de compatibi-
+    # lité), la dérive n'est pas déclarée : on ne peut pas affirmer une tendance.
+    if ancrages is not None and ancrages.rampe_confirmee():
+        if abs(ancrages.ancrages[0] - ancrages.ancrages[SIG_ANCRAGES - 1]) \
+                > SIG_DERIVE_FACTEUR * echelle:
+            return SensorState.DRIFT
+    elif ancrages is None and _quarter_shift(x) > SIG_DERIVE_FACTEUR * echelle:
+        return SensorState.DRIFT          # compatibilité : liste nue, pas d'historique
     return SensorState.OK
 
 
@@ -217,8 +266,16 @@ def _quarter_shift(x):
 
 
 def signal_sensor_state(buf):
-    """État capteur déduit du signal brut (jumeau de veille_signal_sensor_state)."""
-    return _sensor_state(buf.buf if isinstance(buf, SignalBuffer) else buf)
+    """État capteur déduit du signal brut (jumeau de veille_signal_sensor_state).
+
+    Passer un SignalBuffer (et non une liste nue) est ce qui rend la détection de
+    DÉRIVE comparable au C : la tendance de la ligne de base est un historique,
+    donc un état du buffer. Une liste ne donne que plat/mort/bruité — le critère
+    historique à un span est conservé pour ce cas, avec l'avertissement ci-dessus.
+    """
+    if isinstance(buf, SignalBuffer):
+        return _sensor_state(buf.buf, buf)
+    return _sensor_state(buf)
 
 
 def signal_rate_bpm(buf):

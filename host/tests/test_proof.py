@@ -101,9 +101,32 @@ class TestSignal(unittest.TestCase):
         s, bpm, d = self._analyser(GenKind.NOISY, 60)
         self.assertEqual(s, SensorState.NOISY)
         self.assertEqual(d, "tech_fault")
-        s, bpm, d = self._analyser(GenKind.DRIFT, 60)
+        # Dérive : SIX spans de fenêtre. Cinq ancres de la ligne de base sont le
+        # TEMPS D'INSTALLATION de la détection (SIG_ANCRAGES, host/veille/state.py)
+        # — miroir exact du test C core/tests/test_signal.c.
+        s, bpm, d = self._analyser(GenKind.DRIFT, 60, n=6 * 512)
         self.assertEqual(s, SensorState.DRIFT)
         self.assertEqual(d, "tech_fault")
+        # À deux spans la rampe n'est pas encore confirmée : OK, pas DRIFT.
+        s2, _, d2 = self._analyser(GenKind.DRIFT, 60, n=2 * 512)
+        self.assertEqual(s2, SensorState.OK)
+        self.assertEqual(d2, "ok")
+
+    def test_wander_respiratoire_nest_une_panne(self):
+        # Cas mesuré sur MIT-BIH 100/205/222 : une ligne de base qui monte sur
+        # deux spans puis redescend est la RESPIRATION du patient, pas une
+        # électrode qui dérive. L'ancien critère à un span y voyait une panne
+        # dans 17,9 % à 31,8 % des lectures.
+        b = SignalBuffer(250)
+        periode = 4 * 250                      # cycle respiratoire : 4 s
+        for i in range(12 * 250):
+            ph = i % periode
+            demi = periode // 2
+            base = (200 * ph) // demi if ph < demi else 200 - (200 * (ph - demi)) // demi
+            qrs = 1200 if (i % 250) < 6 else 0  # QRS à 60 bpm
+            b.push(base + qrs)
+        self.assertEqual(signal_sensor_state(b), SensorState.OK)
+        self.assertEqual(signal_rate_bpm(b), 60)
 
     def test_pipeline_signal(self):
         # Chaîne complète (SampleChain) : plat → figé, tachycardie → alarme haute.

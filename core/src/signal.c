@@ -7,6 +7,7 @@
  * Pur C11 : ni horloge, ni fichier, ni malloc (tampons sur la pile ou fournis
  * par l'appelant). */
 #include "veille/signal.h"
+#include <stdlib.h>   /* labs */
 #include <string.h>
 
 #define VEILLE_SIG_FS_DEFAUT       250
@@ -53,13 +54,22 @@ static long median_abs_diff(const int16_t *x, int n, int32_t *tmp) {
     return select_kth(tmp, m, m / 2);
 }
 
-/* Décalage de la ligne de base entre le premier et le dernier quart de fenêtre. */
-static long quarter_shift(const int16_t *x, int n, int32_t *tmp) {
-    int q = n / 4;
-    if (q < 1) return 0;
-    long m1 = median_of(x, q, tmp);
-    long m2 = median_of(x + n - q, q, tmp);
-    return m2 > m1 ? m2 - m1 : m1 - m2;
+/* Ligne de base d'une fenêtre = sa médiane (robuste aux QRS : un complexe par
+ * fenêtre ne déplace pas la médiane, la respiration ni l'électrode, si). */
+static long ligne_de_base(const int16_t *x, int n, int32_t *tmp) {
+    return median_of(x, n, tmp);
+}
+
+/* Enregistre un ancrage de ligne de base (le plus récent au rang 0), un par
+ * SPAN de fenêtre. Voir VEILLE_SIG_ANCRAGES dans l'en-tête pour la raison des
+ * cinq ancres : c'est ce qui distingue une panne d'électrode d'une dérive
+ * respiratoire (mesuré sur MIT-BIH 100/205/222). */
+static void ancrage_push(veille_signal_buffer *b) {
+    int32_t tmp[VEILLE_SIG_WINDOW_MAX];
+    long base = ligne_de_base(b->buf, b->n, tmp);
+    for (int i = VEILLE_SIG_ANCRAGES - 1; i > 0; i--) b->ancrages[i] = b->ancrages[i - 1];
+    b->ancrages[0] = base;
+    if (b->n_ancrages < VEILLE_SIG_ANCRAGES) b->n_ancrages++;
 }
 
 void veille_signal_buffer_init(veille_signal_buffer *b, long fs_hz) {
@@ -75,10 +85,29 @@ void veille_signal_push(veille_signal_buffer *b, int16_t sample) {
     if (!b) return;
     if (b->n < VEILLE_SIG_WINDOW_MAX) {
         b->buf[b->n++] = sample;
-        return;
+    } else {
+        memmove(b->buf, b->buf + 1, (VEILLE_SIG_WINDOW_MAX - 1) * sizeof(int16_t));
+        b->buf[VEILLE_SIG_WINDOW_MAX - 1] = sample;
     }
-    memmove(b->buf, b->buf + 1, (VEILLE_SIG_WINDOW_MAX - 1) * sizeof(int16_t));
-    b->buf[VEILLE_SIG_WINDOW_MAX - 1] = sample;
+    b->span++;
+    if (b->span >= VEILLE_SIG_WINDOW_MAX) {
+        b->span = 0;
+        ancrage_push(b);
+    }
+}
+
+/* 1 si la ligne de base dérive SANS INVERSION sur tous les ancres remplis.
+ * Les différences doivent être non nulles ET de même signe : une respiration
+ * (un cycle ~ 4 s = deux spans) inverse le sens et invalide la dérive. */
+static int rampe_confirmee(const veille_signal_buffer *b) {
+    if (b->n_ancrages < VEILLE_SIG_ANCRAGES) return 0;   /* temps d'installation */
+    long premier = b->ancrages[0] - b->ancrages[1];
+    if (premier == 0) return 0;
+    for (int i = 1; i < VEILLE_SIG_ANCRAGES - 1; i++) {
+        long d = b->ancrages[i] - b->ancrages[i + 1];
+        if (d == 0 || (d > 0) != (premier > 0)) return 0;
+    }
+    return 1;
 }
 
 int veille_signal_window_full(const veille_signal_buffer *b) {
@@ -86,7 +115,15 @@ int veille_signal_window_full(const veille_signal_buffer *b) {
 }
 
 veille_sensor_state veille_signal_sensor_state(const veille_signal_buffer *b) {
-    if (!b || b->n < 2) return VEILLE_SENSOR_OK;
+    /* RIEN n'est qualifié tant que la fenêtre d'analyse n'est pas REMPLIE.
+     * Mesuré sur le record 222 : les huit premiers échantillons (ligne de base
+     * à 996 codes, plage de 2) faisaient rendre « capteur figé » pendant le
+     * remplissage du tampon — un artefact de démarrage, pas une panne. Un
+     * moniteur n'alarme pas sur un signal qu'il n'a pas encore regardé ; la
+     * fenêtre de 512 échantillons (~1,4 s à 360 Hz) est donc un TEMPS
+     * D'INSTALLATION, distinct de la borne B_tech qui, elle, vaut une fois la
+     * chaîne en régime. */
+    if (!b || b->n < VEILLE_SIG_WINDOW_MAX) return VEILLE_SENSOR_OK;
     int n = b->n;
     const int16_t *x = b->buf;
     int32_t tmp[VEILLE_SIG_WINDOW_MAX];
@@ -104,8 +141,14 @@ veille_sensor_state veille_signal_sensor_state(const veille_signal_buffer *b) {
     if (mdiff > 0 && mdiff * 100 > VEILLE_SIG_BRUIT_PCT * plage)
         return VEILLE_SENSOR_NOISY;                        /* variance excessive */
     long echelle = (mdiff > 0) ? mdiff : 1;
-    if (quarter_shift(x, n, tmp) > VEILLE_SIG_DERIVE_FACTEUR * echelle)
-        return VEILLE_SENSOR_DRIFT;                        /* ligne de base qui bouge */
+    /* Dérive : rampe de la ligne de base confirmée sur cinq spans, ET ample
+     * (quatre fois l'échelle du bruit d'un échantillon). Les deux conditions
+     * sont nécessaires : l'amplitude seule attrape la respiration, la
+     * monotonie seule ne dit rien d'une dérive négligeable. */
+    if (rampe_confirmee(b)
+        && labs(b->ancrages[0] - b->ancrages[VEILLE_SIG_ANCRAGES - 1])
+           > VEILLE_SIG_DERIVE_FACTEUR * echelle)
+        return VEILLE_SENSOR_DRIFT;
     return VEILLE_SENSOR_OK;
 }
 

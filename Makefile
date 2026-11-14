@@ -14,7 +14,7 @@ TEST_BIN := $(TEST_SRC:.c=.bin)
 
 -include $(CORE_DEP)
 
-.PHONY: all test sanitize proof lint clean core host differential sim demo qnx
+.PHONY: all test sanitize proof lint clean core host differential sim demo replay replay-qnx qnx
 
 all: core
 
@@ -79,11 +79,13 @@ QNX_SDP    ?= $(HOME)/qnx800
 QCC_V      ?= gcc_ntox86_64        # ou gcc_ntoaarch64le (RPi5) — voir qcc -V
 QNX_DIR    ?= build/qnx
 QNX_CFLAGS := -std=c11 -O2 -Wall -Wextra -Werror -D_QNX_SOURCE \
-              -Icore/include -Itarget/pipe -Itarget/port -Itarget/rm
+              -Icore/include -Itarget/pipe -Itarget/port -Itarget/rm -Itarget/replay
 QNX_CORE_SRC := $(wildcard core/src/*.c)
 QNX_SIM_SRC  := target/sim/sim.c target/pipe/veille_pipe.c target/port/qnx_time.c
 QNX_RM_SRC   := target/rm/rm_chain.c target/rm/rm_io.c target/rm/resmgr_veille.c \
                 target/pipe/veille_pipe.c target/port/qnx_time.c
+QNX_REPLAY_SRC := target/replay/replay_ecg.c target/replay/replay_rapport.c \
+                  target/pipe/veille_pipe.c target/port/qnx_time.c
 
 qnx:
 	@bash -c '[ -f $(QNX_SDP)/qnxsdp-env.sh ] || { echo "[qnx] SDP introuvable dans $(QNX_SDP) — voir docs/QNX-BUILD.md"; exit 1; }; \
@@ -91,7 +93,10 @@ qnx:
 	  echo "[qnx] $$(qcc -V 2>&1 | head -1) → cible $(QCC_V)"; \
 	  qcc -V $(QCC_V) $(QNX_CFLAGS) $(QNX_SIM_SRC) $(QNX_CORE_SRC) -o $(QNX_DIR)/veille-sim; \
 	  qcc -V $(QCC_V) $(QNX_CFLAGS) $(QNX_RM_SRC) $(QNX_CORE_SRC) -o $(QNX_DIR)/veille-rm; \
-	  file $(QNX_DIR)/veille-sim $(QNX_DIR)/veille-rm'
+	  qcc -V $(QCC_V) $(QNX_CFLAGS) -Itarget/replay $(QNX_REPLAY_SRC) $(QNX_CORE_SRC) -o $(QNX_DIR)/replay-ecg; \
+	  qcc -V $(QCC_V) $(QNX_CFLAGS) tools/qnx/hog.c -o $(QNX_DIR)/hog; \
+	  qcc -V $(QCC_V) $(QNX_CFLAGS) tools/qnx/tick_probe.c -o $(QNX_DIR)/tick-probe; \
+	  file $(QNX_DIR)/veille-sim $(QNX_DIR)/veille-rm $(QNX_DIR)/replay-ecg $(QNX_DIR)/hog'
 
 clean:
 	rm -f $(CORE_OBJ) $(CORE_DEP) $(TEST_BIN)
